@@ -7,6 +7,7 @@
 ###################################################################################################
 
 # Set PYTHONPATH to khmer module
+ 
 export PYTHONPATH=/opt/software/khmer/python
 
 # File with *Arabidopsis* 100 mRNA transcripts downloaded from [European Nucleotide Archive](http://www.ebi.ac.uk/ena/home)
@@ -37,10 +38,10 @@ echo -e "Done with quality trimming: " `date` "\n"
 
 ## Run digital normalization with khmer
 # interleave file
-python /opt/software/khmer/sandbox/interleave.py reads_end1_val_1.fq reads_end2_val_2.fq > sim-interleaved.fastq
+python /opt/software/khmer/scripts/interleave-reads.py reads_end1_val_1.fq reads_end2_val_2.fq > sim-interleaved.fastq
 
-# run diginorm
-python /opt/software/khmer/scripts/normalize-by-median.py -R diginorm-final.out -C 20 -k 21 -N 4 -x 4e9 sim-interleaved.fastq
+# run diginorm specifying paired-end reads (-p) with coverage threshold and kmer of 20
+python /opt/software/khmer/scripts/normalize-by-median.py -R diginorm-final.out -p -C 20 -k 20 -N 4 -x 4e9 sim-interleaved.fastq
 echo -e "Done with interleaving files:" `date` "\n"
 
 
@@ -56,9 +57,6 @@ echo -e "Done with velvet-oases:" `date` "\n"
 
 # check basic stats
 python /opt/software/khmer/sandbox/assemstats2.py 300 sim-oases-21/transcripts.fa 
-
-
-
 ## BLAST assembled transcripts against true transcripts
 # Make blast database
 makeblastdb -dbtype nucl -in sim-oases-21/transcripts.fa
@@ -67,29 +65,14 @@ mv sim-oases-21/transcripts.fa.n* .
 blastn -query $simfasta -db transcripts.fa -out blast-sim-21.txt
 
 
+## Map simulated reads to velvet-oases transcriptome using TopHat-Cufflinks
 
-## Map simulated reads to velvet-oases transcriptome with BWA
-# Index transcriptome fasta file
-bwa index $simfasta 
+# Create index with Bowtie
+bowtie2-build sim-oases-21/transcripts.fa simsample
 
-# Map paired reads; using trimmed and filtered reads
-bwa aln $simfasta reads_end1.fq > sim-mapped-reads_end1.sai
-bwa aln $simfasta reads_end2.fq > sim-mapped-reads_end2.sai
-# convert sai to SAM and combine files
-bwa sampe $simfasta sim-mapped-reads_end1.sai sim-mapped-reads_end1.sai reads_end1.fq reads_end2.fq > sim-mapped-reads.sam
-# convert to BAM
-samtools faidx $simfasta #index
-samtools import ${simfasta}.fai sim-mapped-reads.sam sim-mapped-reads.bam # sam->bam
-samtools sort sim-mapped-reads.bam sim-mapped-reads.sorted.bam # sort BAM
-samtools index sim-mapped-reads.sorted.bam # index
+# Run tophat to map reads to reference
+tophat -o tophat_out simsample reads_end1_val_1.fq reads_end2_val_2.fq 
 
-# Can view alignment using
-# samtools tview sim-mapped-read.sorted.bam $simfasta
-
-## Gene expression
-
-# first, turn original Arabidopsis mRNA into a BED file using script from http://ged.msu.edu/angus/tutorials-2013/rnaseq_bwa_counting.html?highlight=bwa
-python /home/projects/climate-cascade/scripts/make_bed_from_fasta.py $simfasta > simfasta.bed
-# count reads that have mapping quality of 30 or better (-q 30)
-multiBamCov -q 30 -p -bams sim-mapped-reads.sorted.bam -bed simfasta.bed > sim_transcriptome_counts.txt
+# Run cufflinks for transcript discovery
+cufflinks -o cufflinks_out tophat_out/accepted_hits.bam
 
