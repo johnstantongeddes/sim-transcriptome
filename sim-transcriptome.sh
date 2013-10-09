@@ -10,6 +10,8 @@
  
 export PYTHONPATH=/opt/software/khmer/python
 
+##--------------------Simulate data------------------------------------------------
+
 # File with *Arabidopsis* 100 mRNA transcripts downloaded from [European Nucleotide Archive](http://www.ebi.ac.uk/ena/home)
 simfasta="ena100.fasta"
 
@@ -26,6 +28,10 @@ echo -e "Done with expression levels: " `date` "\n"
 
 rlsim -v -n 1500000 -d "1:n:(180, 20, 100, 500)" ena-simulated.fasta > ena-simulated-frags.fasta
 echo -e "Done with simulated fragmentation levels: " `date` "\n"
+
+
+
+##-----------------Assemble simulated data---------------------------------------------
 
 ## Generate simulated Illumina paired-end reads using [simNGS](http://www.ebi.ac.uk/goldman-srv/simNGS/)
 # output is 'reads_end1.fq' and 'reads_end2.fq'
@@ -44,7 +50,6 @@ python /opt/software/khmer/scripts/interleave-reads.py reads_end1_val_1.fq reads
 python /opt/software/khmer/scripts/normalize-by-median.py -R diginorm-final.out -p -C 20 -k 20 -N 4 -x 4e9 sim-interleaved.fastq
 echo -e "Done with interleaving files:" `date` "\n"
 
-
 ## Assemble transcriptome with velvet-oases
 # velveth
 velveth sim-oases-21 21 -fastq -interleaved -shortPaired sim-interleaved.fastq
@@ -57,13 +62,24 @@ echo -e "Done with velvet-oases:" `date` "\n"
 
 # check basic stats
 python /opt/software/khmer/sandbox/assemstats2.py 300 sim-oases-21/transcripts.fa 
+
+
+##----------------BLAST known starting sequences against assembly---------------
+
 ## BLAST assembled transcripts against true transcripts
 # Make blast database
 makeblastdb -dbtype nucl -in sim-oases-21/transcripts.fa
 mv sim-oases-21/transcripts.fa.n* .
 # blast true transcripts against assembled transcripts
-blastn -query $simfasta -db transcripts.fa -out blast-sim-21.txt
+# specify output in tabular format using `-outfmt 6` so that file can be read by RFLPtools in R
+# for post-processing
+blastn -query $simfasta -db transcripts.fa -outfmt 6 -out blast-results.txt
 
+# R script to extract top assembled transcript against each starting sequence
+# provide original fasta file and blast results
+Rscript eval.R $fasta $blastout
+
+##---------------Map reads against against assembly----------------------------
 
 ## Map simulated reads to velvet-oases transcriptome using TopHat-Cufflinks
 
