@@ -13,6 +13,7 @@ export PYTHONPATH=/opt/software/khmer/python
 ##--------------------Simulate data------------------------------------------------
 
 # File with *Arabidopsis* 100 mRNA transcripts downloaded from [European Nucleotide Archive](http://www.ebi.ac.uk/ena/home)
+
 simfasta="ena100.fasta"
 
 ## Trim fasta titles to just ID
@@ -92,3 +93,26 @@ tophat -o tophat_out simsample reads_end1_val_1.fq reads_end2_val_2.fq
 # Run cufflinks for transcript discovery
 cufflinks -o cufflinks_out tophat_out/accepted_hits.bam
 
+
+## Map with BWA
+
+# Build index with BWA
+bwa index $simfasta
+
+# Map paired reads
+bwa mem $simfasta reads_end1_val_1.fq reads_end2_val_2.fq > sim-mapped-pe.sam
+
+# Convert to BAM
+samtools faidx $simfasta # index
+samtools import ${simfasta}.fai sim-mapped-pe.sam sim-mapped-pe.bam # sam -> bam
+samtools sort sim-mapped-pe.bam sim-mapped-pe.sorted # sort BAM
+samtools index sim-mapped-pe.sorted.bam # index
+
+# Convert known fasta file into BED using script from http://ged.msu.edu/angus/tutorials-2013/rnaseq_bwa_counting.html?highlight=bwa
+python /home/projects/climate-cascade/scripts/make_bed_from_fasta.py $simfasta > simfasta.bed
+# count reads that have mapping quality of 30 or better `-q 30`
+multiBamCov -q 30 -p -bams sim-mapped-pe.sorted.bam -bed simfasta.bed > sim-transcriptome-counts-BWA.txt
+
+# Calculate Transcripts per million (TPM) (Wagner et al. 2012 Theory. Biosci) 
+
+Rscript TKM.R sim-transcriptome-counts-BWA.txt
