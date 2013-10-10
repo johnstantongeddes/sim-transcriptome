@@ -110,8 +110,15 @@ samtools index sim-mapped-pe.sorted.bam # index
 
 # Convert known fasta file into BED using script from http://ged.msu.edu/angus/tutorials-2013/rnaseq_bwa_counting.html?highlight=bwa
 python /home/projects/climate-cascade/scripts/make_bed_from_fasta.py $simfasta > simfasta.bed
-# count reads that have mapping quality of 30 or better `-q 30`
-multiBamCov -q 30 -p -bams sim-mapped-pe.sorted.bam -bed simfasta.bed > sim-transcriptome-counts-BWA.txt
+
+# count reads that have mapping quality of 30 or better `-q 30` to the known transcripts
+multiBamCov -q 30 -p -bams sim-mapped-pe.sorted.bam -bed simfasta.bed > BWA-counts-known.txt
+
+# count reads that have mapping quality of 30 or better to the assembled transcripts
+python /home/projects/climate-cascade/scripts/make_bed_from_fasta.py sim-oases-21/transcripts.fa > sim-oases-21-transcripts.bed
+
+multiBamCov -q 10 -p -bams sim-mapped-pe.sorted.bam -bed sim-oases-21-transcripts.bed > BWA-counts-oases-q10.txt
+
 
 # Calculate Transcripts per million (TPM) (Wagner et al. 2012 Theory. Biosci) 
 
