@@ -80,7 +80,7 @@ blastn -query $simfasta -db transcripts.fa -outfmt 6 -out blast-results.txt
 # provide original fasta file and blast results
 Rscript eval.R $fasta $blastout
 
-##---------------Map reads against against assembly----------------------------
+##---------------Map reads against against known transcripts----------------------------
 
 ## Map simulated reads to velvet-oases transcriptome using TopHat-Cufflinks
 
@@ -93,6 +93,7 @@ tophat -o tophat_out simsample reads_end1_val_1.fq reads_end2_val_2.fq
 # Run cufflinks for transcript discovery
 cufflinks -o cufflinks_out tophat_out/accepted_hits.bam
 
+## Hmmm...cufflinks only reports counts for 29 genes/isoforms...where are the rest?
 
 ## Map with BWA
 
@@ -114,9 +115,10 @@ python /home/projects/climate-cascade/scripts/make_bed_from_fasta.py $simfasta >
 # count reads that have mapping quality of 30 or better `-q 30` to the known transcripts
 multiBamCov -q 30 -p -bams sim-mapped-pe.sorted.bam -bed simfasta.bed > BWA-counts-known.txt
 
+# Calculate Transcripts per million (TPM) (Wagner et al. 2012 Theory. Biosci) 
+Rscript TPM.R BWA-sim-counts.txt
 
-
-## REPEAT above for oases assembled transcripts
+##---------------Map reads against against assembled transcripts----------------------------
 
 # Index
 bwa index sim-oases-21/transcripts.fa
@@ -138,8 +140,16 @@ multiBamCov -q 30 -p -bams oases-mapped-pe.sorted.bam -bed sim-oases-21-transcri
 
 
 # Calculate Transcripts per million (TPM) (Wagner et al. 2012 Theory. Biosci) 
-# known
-Rscript TPM.R sim-transcriptome-counts-BWA.txt
-# oases assemble
 Rscript TPM.R BWA-counts-oases.txt
 
+
+## This results in reads being mapped to 203 transcripts as oases identifies multiple isoforms 
+## for genes that do not actually exist
+## Reduce oases assembly by selecting longest transcript for each locus 
+Rscript oases-reduce.r sim-oases-21/transcripts.fa
+
+# repeat mapping with BWA...
+
+
+# compare read counts for mapping to known vs assembled transcripts
+Rscript known-vs-assembled.R BWA-sim-counts.txt BWA-counts-oases-reduced.txt
