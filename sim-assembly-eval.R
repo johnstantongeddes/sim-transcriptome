@@ -54,6 +54,7 @@ head(blast.names)
 
 cat("Done reading files", '\n')
 
+
 ##------------Evaluate assembly against known starting sequences-----------
 
 # get names of known genes that were mapped in assembly
@@ -76,6 +77,40 @@ kmis <- data.frame(status="missing", length=known.length.missing)
 kdf <- rbind(kcap, kmis)
 
 
+##--------Evaluate quality of assembly-------------------------------
+# of known transcripts that are mapped, what proportion of their length is mapped?
+# does Oases infer isoforms that don't really exist?
+
+# Dataframe to collect results
+qual.df <- matrix(ncol=3, nrow=0)
+colnames(qual.df) <- c("gene", "length.mapped", "bp.mapped")
+
+for(i in 1:length(unique(blast.res$query.id))) {
+    # get number of transcripts
+    bi <- blast.res$query.id[i]
+    bin <- blast.res[blast.res$query.id==bi,]
+    nrow(bin)
+    # length of known transcript
+    kl <- width(known[which(known.names==bi)])
+    # what proportion of known transcript mapped by assembled transcripts
+    prop.mapped <- round((max(bin$q.end) - min(bin$q.start))/kl,2)
+    # how many base pairs of assembled transcript relative to known (e.g. incorrect isoforms)?
+    bp.mapped <- sum(bin$alignment.length)/kl
+    # report
+    qual.df <- rbind(qual.df, c(bi, prop.mapped, bp.mapped))
+}
+
+qual.df <- as.data.frame(qual.df)
+qual.df$length.mapped <- as.numeric(as.character(qual.df$length.mapped))
+qual.df$bp.mapped <- as.numeric(as.character(qual.df$bp.mapped))
+str(qual.df)
+
+# Mean length of original transcript mapped
+mean(qual.df$length.mapped)
+# Mean copies of original transcript mapped. 1=mapped once, <1 mapped to less than full length,
+#  > 1 mapped multiple times (e.g 2=mapped twice)
+mean(qual.df$bp.mapped)
+
 ##-------------Report results-------------------------------------------
 
 # plot
@@ -90,3 +125,8 @@ cat('Genes', '\t', 'Count', '\t', 'Average length (base pairs)', '\n',
     'Captured', '\t', length(captured), '\t', mean(known.length.captured), '\n',
     'Missing', '\t', length(known.length.missing), '\t', mean(known.length.missing), '\n',
     file="sim-assembly-results.txt")
+
+cat('Mean proportion of original transcript mapped', '\t', 'Num isoforms inferred', '\n',
+    round(mean(qual.df$length.mapped),2), '\t', round(mean(qual.df$bp.mapped),2), '\n',
+    file="sim-assembly-results2.txt")
+

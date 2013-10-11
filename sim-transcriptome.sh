@@ -108,18 +108,38 @@ samtools import ${simfasta}.fai sim-mapped-pe.sam sim-mapped-pe.bam # sam -> bam
 samtools sort sim-mapped-pe.bam sim-mapped-pe.sorted # sort BAM
 samtools index sim-mapped-pe.sorted.bam # index
 
-# Convert known fasta file into BED using script from http://ged.msu.edu/angus/tutorials-2013/rnaseq_bwa_counting.html?highlight=bwa
+# convert known fasta file into BED using script from http://ged.msu.edu/angus/tutorials-2013/rnaseq_bwa_counting.html?highlight=bwa
 python /home/projects/climate-cascade/scripts/make_bed_from_fasta.py $simfasta > simfasta.bed
 
 # count reads that have mapping quality of 30 or better `-q 30` to the known transcripts
 multiBamCov -q 30 -p -bams sim-mapped-pe.sorted.bam -bed simfasta.bed > BWA-counts-known.txt
 
-# count reads that have mapping quality of 30 or better to the assembled transcripts
+
+
+## REPEAT above for oases assembled transcripts
+
+# Index
+bwa index sim-oases-21/transcripts.fa
+
+# Map paired reads
+bwa mem sim-oases-21/transcripts.fa reads_end1_val_1.fq reads_end2_val_2.fq > oases-mapped-pe.sam
+
+# Convert to BAM
+samtools faidx sim-oases-21/transcripts.fa # index
+samtools import sim-oases-21/transcripts.fai oases-mapped-pe.sam oases-mapped-pe.bam # sam -> bam
+samtools sort oases-mapped-pe.bam oases-mapped-pe.sorted # sort BAM
+samtools index oases-mapped-pe.sorted.bam # index
+
+# convert oases transcripts to bed 
 python /home/projects/climate-cascade/scripts/make_bed_from_fasta.py sim-oases-21/transcripts.fa > sim-oases-21-transcripts.bed
 
-multiBamCov -q 10 -p -bams sim-mapped-pe.sorted.bam -bed sim-oases-21-transcripts.bed > BWA-counts-oases-q10.txt
+# count reads that have mapping quality of 30 or better to the assembled transcripts
+multiBamCov -q 30 -p -bams oases-mapped-pe.sorted.bam -bed sim-oases-21-transcripts.bed > BWA-counts-oases.txt
 
 
 # Calculate Transcripts per million (TPM) (Wagner et al. 2012 Theory. Biosci) 
+# known
+Rscript TPM.R sim-transcriptome-counts-BWA.txt
+# oases assemble
+Rscript TPM.R BWA-counts-oases.txt
 
-Rscript TKM.R sim-transcriptome-counts-BWA.txt
