@@ -78,7 +78,7 @@ blastn -query $simfasta -db transcripts.fa -outfmt 6 -out blast-results.txt
 
 # R script to extract top assembled transcript against each starting sequence
 # provide original fasta file and blast results
-Rscript eval.R $fasta $blastout
+Rscript eval.R $simfasta blast-results.txt
 
 ##---------------Map reads against against known transcripts----------------------------
 
@@ -146,10 +146,27 @@ Rscript TPM.R BWA-counts-oases.txt
 ## This results in reads being mapped to 203 transcripts as oases identifies multiple isoforms 
 ## for genes that do not actually exist
 ## Reduce oases assembly by selecting longest transcript for each locus 
-Rscript oases-reduce.r sim-oases-21/transcripts.fa
+Rscript oases-reduce.r sim-oases-21/transcripts.fa blast-results.txt 
+# output file: oases-transcripts-kept.fa
 
-# repeat mapping with BWA...
 
+##----------Map reads against unique assembled transcripts with BWA----------------
+# Index
+bwa index oases-transcripts-kept.fa
+# Map paired reads
+bwa mem oases-transcripts-kept.fa reads_end1_val_1.fq reads_end2_val_2.fq > oases-transcripts-kept-mapped.sam
+# Convert to BAM
+samtools faidx oases-transcripts-kept.fa # index
+samtools import oases-transcripts-kept.fai oases-transcripts-kept-mapped.sam oases-transcripts-kept-mapped.bam # sam -> bam
+samtools sort oases-transcripts-kept-mapped.bam oases-transcripts-kept-mapped-sorted # sort BAM
+samtools index oases-transcripts-kept-mapped-sorted.bam # index
+# convert oases transcripts to bed 
+python /home/projects/climate-cascade/scripts/make_bed_from_fasta.py oases-transcripts-kept.fa > oases-transcripts-kept.bed
+# count reads that have mapping quality of 30 or better to the assembled transcripts
+multiBamCov -q 30 -p -bams oases-transcripts-kept-mapped-sorted.bam -bed oases-transcripts-kept.bed > BWA-counts-kept.txt
 
-# compare read counts for mapping to known vs assembled transcripts
-Rscript known-vs-assembled.R BWA-sim-counts.txt BWA-counts-oases-reduced.txt
+## Compare read counts for mapping to known vs assembled transcripts
+# first extract counts for the 78 known loci that correspond to the 78 that were assembled 
+##### Rscripts extract-known.R 
+
+##### Rscript known-vs-assembled.R BWA-sim-counts.txt BWA-counts-kept.txt

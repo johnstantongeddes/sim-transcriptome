@@ -3,6 +3,8 @@
 
 ##-------------Load libraries--------------------------------
 library(Biostrings)
+library(stringr)
+library(RFLPtools)
 
 ##-------------Get command-line arguments and read files------------
 args <- commandArgs(trailingOnly = TRUE)
@@ -10,8 +12,7 @@ fasta <- args[1]
 blastout <- args[2]
 transcripts <- args[3]
 
-
-# read fasta file
+## Read known fasta file
 known <- readDNAStringSet(fasta)
 # extract names
 known.names <- names(known)
@@ -20,17 +21,24 @@ kn.split <- str_split_fixed(known.names, ' ', 2)
 known.names <- kn.split[,1]
 head(known.names)
 
-# read blastn file
+## Read Oases transcripts
+# read fasta file of oases transcripts
+oases <- readDNAStringSet(transcripts)
+head(oases)
+# extract names
+oases.names <- names(oases)
+
+## Read blastn file of oases transcripts mapped to known transcripts
 blast.res <- read.blast(blastout)
 head(blast.res)
 blast.names <- unique(blast.res$query.id)
 head(blast.names)
 
+
+
 cat("Done reading files", '\n')
 
-
-head(blast.res)
-
+##------Extract longest transcript from each locus--------------------
 blast.sub <- blast.res[0,]
 
 for(i in unique(blast.res$query.id)) {
@@ -43,21 +51,19 @@ for(i in unique(blast.res$query.id)) {
 
 if(nrow(blast.sub) != length(unique(blast.res$query.id))) stop("missing transcripts")
 
-# Read Oases transcripts
+dim(blast.sub)
+# By BLAST, 86 of original 100 transcripts are recaptured in assembled transcripts 
+length(unique(blast.sub$subject.id))
+# but these are represented by only 78 unique assembled loci 
+# visually checked and duplicates are closely related known transcripts
+# e.g. 
 
-# read fasta file of oases transcripts
-oases <- readDNAStringSet(transcripts)
 
-# extract names
-oases.names <- names(oases)
-
-
-# Pull out oases transcripts from longest BLAST matches and save to file
-for(j in 1:nrow(blast.sub)) {
-    oases.select <- oases[which(names(oases) == blast.sub$subject.id[j]) ,]
+# Pull out unique oases transcripts from longest BLAST matches and save to file
+for(j in unique(blast.sub$subject.id)) {
+    oases.select <- oases[which(names(oases) == j) ,]
     writeXStringSet(oases.select, file="oases-transcripts-kept.fa", append=TRUE)
 }
-
 
 
     
