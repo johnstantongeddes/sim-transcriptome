@@ -59,11 +59,21 @@ length(unique(blast.sub$subject.id))
 # e.g. 
 
 
-# Pull out unique oases transcripts from longest BLAST matches and save to file
+# Extract out unique oases transcripts from longest BLAST matches and save to file
 for(j in unique(blast.sub$subject.id)) {
     oases.select <- oases[which(names(oases) == j) ,]
     writeXStringSet(oases.select, file="oases-transcripts-kept.fa", append=TRUE)
 }
+
+
+# Extract names of known transcripts that correspond to the 'oases-transcripts-kept.fa'
+
+# read file
+kept <- read.table("oases-transcripts-kept.fa", header=FALSE, sep="\t")
+head(kept)
+
+head(oases.select)
+
 
 
     

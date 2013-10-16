@@ -1,5 +1,5 @@
 # Files for git to ignore
-#
+*~
 
 # files generated during transcriptome assembly and gene expression analysis
 *.amb

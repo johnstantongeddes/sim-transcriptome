@@ -49,8 +49,10 @@ head(known.names)
 # read blastn file
 blast.res <- read.blast(blastout)
 head(blast.res)
+dim(blast.res)
 blast.names <- unique(blast.res$query.id)
 head(blast.names)
+length(unique(blast.names))
 
 cat("Done reading files", '\n')
 
@@ -113,20 +115,24 @@ mean(qual.df$bp.mapped)
 
 ##-------------Report results-------------------------------------------
 
+# prefix for output files
+pre <- str_split_fixed(blastout, "\\.", 2)[,1]
+
 # plot
-png("hist-missing-vs-captured-length.png")
+png(paste("hist-", pre, "-missing-vs-captured-length.png", sep=""))
 ggplot(kdf, aes(length, fill=status)) +
     geom_density(alpha=0.2)
 dev.off()
 
 ## Report results to file
-cat('Genes', '\t', 'Count', '\t', 'Average length (base pairs)', '\n',
+cat('Transcripts', '\t', 'Count', '\t', 'Average length (base pairs)', '\n',
     'Starting', '\t', length(known.names), '\t', mean(width(known)), '\n',
     'Captured', '\t', length(captured), '\t', mean(known.length.captured), '\n',
     'Missing', '\t', length(known.length.missing), '\t', mean(known.length.missing), '\n',
-    file="sim-assembly-results.txt")
+    file=paste("sim-assembly-results-", pre, ".txt", sep=""))
 
-cat('Mean proportion of original transcript mapped', '\t', 'Num isoforms inferred', '\n',
+cat('Mean proportion of original transcript mapped', '\t', 'Proportion bp assembled to starting bp', '\n',
     round(mean(qual.df$length.mapped),2), '\t', round(mean(qual.df$bp.mapped),2), '\n',
-    file="sim-assembly-results2.txt")
+    file=paste("sim-assembly-results2-", pre, ".txt", sep=""))
+
 
