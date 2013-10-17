@@ -18,6 +18,8 @@ samp.file <- sample(file, X)
 length(samp.file)
 head(samp.file)
 
-# Write to file
+# Write subset of fasta sequences to file
 writeXStringSet(samp.file, file="known.fasta")
 
+# Write mean length to file
+cat(mean(width(samp.file)), '\n', file="mean-length-fasta.txt")

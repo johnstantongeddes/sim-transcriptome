@@ -31,21 +31,30 @@ echo -e "Done with expression levels: " `date` "\n"
 
 ## Simulate fragments created during library prep using `rlsim`. Based on length of fragments estimated when using FLASH to pair reads, use empirical length distribution of 180 bp (SD: 20bp).
 
-rlsim -v -n 1500000 -d "1:n:(180, 20, 100, 500)" known-sim.fasta > known-sim-frags.fasta
+rlsim -v -n 150000 -d "1:n:(180, 20, 100, 500)" known-sim.fasta > known-sim-frags.fasta
 echo -e "Done with simulated fragmentation levels: " `date` "\n"
-
-
-
-##-----------------Assemble simulated data---------------------------------------------
 
 ## Generate simulated Illumina paired-end reads using [simNGS](http://www.ebi.ac.uk/goldman-srv/simNGS/) and a default runfile provided with simNGS
 # output is 'reads_end1.fq' and 'reads_end2.fq'
 cat known-sim-frags.fasta | simNGS -p paired -o fastq -O reads /opt/software/simNGS/data/s_3_4x.runfile
 echo -e "Done with Illumina read simulation: " `date` "\n"
 
+# move intermediate files
+mv rlsim_report.json out
+mv sel_report.pdf out
+
+##---------------QC and diginorm simulated Illumina reads----------------------
+
 ## Run through TrimGalore for adapter cutting and quality trimming
 trim_galore --quality 20 --phred33 --fastqc --length 20 --paired reads_end1.fq reads_end2.fq
 echo -e "Done with quality trimming: " `date` "\n"
+
+# move intermediate files
+mv reads_end*.fq out
+mv reads_end*.fq_trimming_report.txt out
+mv reads_end*_val_*.fq_fastqc out
+mv reads_end*_val_*.fq_fastqc.zip out
+
 
 ## Run digital normalization with khmer
 
@@ -55,6 +64,9 @@ python /opt/software/khmer/scripts/interleave-reads.py reads_end1_val_1.fq reads
 # run diginorm specifying paired-end reads (-p) with coverage threshold and kmer of 20
 python /opt/software/khmer/scripts/normalize-by-median.py -R diginorm-final.out -p -C 20 -k 20 -N 4 -x 4e9 sim-interleaved.fastq
 echo -e "Done with interleaving files:" `date` "\n"
+
+mv diginorm-final.out out 
+
 
 ##----------Assemble transcriptome with velvet-oases------------------------
 
@@ -106,6 +118,19 @@ blastn -query known-sim.fasta -db sim-oases-norm-21/transcripts.fa -out blast-oa
 #   sim-assembly-results2-{blast file prefix}.txt  - mean proportion of original transcript mapped and mean bp mapped to starting number bp
 Rscript sim-assembly-eval.R known-sim.fasta blast-oases-21.txt
 Rscript sim-assembly-eval.R known-sim.fasta blast-oases-norm-21.txt
+
+
+##-----------CD-HIT on assembled transcripts--------------------------------------------
+
+cd-hit-est -i sim-oases-21/transcripts.fa -o sim-oases-21-cdhit.fa -c 0.95 -n 8
+cd-hit-est -i sim-oases-norm-21/transcripts.fa -o sim-oases-norm-21-cdhit.fa -c 0.95 -n 8
+
+## BLAST reduced transcripts to known assembly
+makeblastdb -dbtype nucl -in sim-oases-21-cdhit.fa
+blastn -query known-sim.fasta -db sim-oases-21-cdhit.fa -outfmt 6 -out blast-oases-21-cdhit.txt
+blastn -query known-sim.fasta -db sim-oases-21-cdhit.fa -out blast-oases-21-cdhit.html
+
+Rscript sim-assembly-eval.R known-sim.fasta blast-oases-21-cdhit.txt
 
 
 ##---------------Map reads against against known transcripts----------------------------
