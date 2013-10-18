@@ -10,6 +10,17 @@
  
 export PYTHONPATH=/opt/software/khmer/python
 
+# Directory for intermediate files
+
+mkdir -p temp
+
+# Parameters
+X=100 # number of fasta sequences from input file to select
+cov=300 # desired read coverge in simulated Illumina sequencing
+rl=200 # read length for simulated Illumina sequencing
+k=21 # kmer for velvet-oases
+
+
 ##--------------------Simulate data------------------------------------------------
 
 # Fasta file of known mRNA transcripts for simulation
@@ -18,20 +29,24 @@ export PYTHONPATH=/opt/software/khmer/python
 knownfasta="ena.fasta"
 
 # Randomly select X sequences; output "known.fasta"
-Rscript sample-fasta.R $knownfasta 100
+Rscript sample-fasta.R $knownfasta $X
 
 ## Trim fasta titles to just ID
 cut -f1 -d" " known.fasta > known1.fasta
 
 ## Assign expression-level to each sequence using the `sel` tool in [rlsim](https://github.com/sbotond/rlsim)
-
 sel -d "1.0:g:(1500, 3)" known1.fasta > known-sim.fasta
-rm known.fasta known1.fasta # Clean-up temp files
 echo -e "Done with expression levels: " `date` "\n"
 
-## Simulate fragments created during library prep using `rlsim`. Based on length of fragments estimated when using FLASH to pair reads, use empirical length distribution of 180 bp (SD: 20bp).
+## Simulate fragments created during library prep using `rlsim`. Based on length of fragments estimated when using FLASH to pair reads, use empirical length distribution of 200 bp (SD: 20bp).
+# -n determines the number of fragments to simulate. Base on desired coverage
+#  coverage = (number fragments * length of reads) / (number transcripts * mean length of transcripts)
+# frag=(coverage * number transcripts * mean length of transcripts) / length of reads
+ml=`cut -f 1 mean-length-fasta.txt`
 
-rlsim -v -n 150000 -d "1:n:(180, 20, 100, 500)" known-sim.fasta > known-sim-frags.fasta
+frag=$(bc <<< "scale=0;($cov * $X * $ml) / $rl") # number of fragments so simulate sequencing
+
+rlsim -v -n $frag -d "1:n:(200, 20, 100, 500)" known-sim.fasta > known-sim-frags.fasta
 echo -e "Done with simulated fragmentation levels: " `date` "\n"
 
 ## Generate simulated Illumina paired-end reads using [simNGS](http://www.ebi.ac.uk/goldman-srv/simNGS/) and a default runfile provided with simNGS
@@ -40,8 +55,11 @@ cat known-sim-frags.fasta | simNGS -p paired -o fastq -O reads /opt/software/sim
 echo -e "Done with Illumina read simulation: " `date` "\n"
 
 # move intermediate files
-mv rlsim_report.json out
-mv sel_report.pdf out
+mv known.fasta temp 
+mv known1.fasta temp
+mv known-sim-frags.fasta temp
+mv rlsim_report.json temp
+mv sel_report.pdf temp
 
 ##---------------QC and diginorm simulated Illumina reads----------------------
 
@@ -50,87 +68,96 @@ trim_galore --quality 20 --phred33 --fastqc --length 20 --paired reads_end1.fq r
 echo -e "Done with quality trimming: " `date` "\n"
 
 # move intermediate files
-mv reads_end*.fq out
-mv reads_end*.fq_trimming_report.txt out
-mv reads_end*_val_*.fq_fastqc out
-mv reads_end*_val_*.fq_fastqc.zip out
+mv reads_end[12].fq temp
+mv reads_end[12].fq_trimming_report.txt temp
+mv reads_end[12]_val_[12].fq_fastqc temp
+mv reads_end*_val_*.fq_fastqc.zip temp
 
 
 ## Run digital normalization with khmer
 
 # interleave file
-python /opt/software/khmer/scripts/interleave-reads.py reads_end1_val_1.fq reads_end2_val_2.fq > sim-interleaved.fastq
+python /home/scripts/khmer/scripts/interleave-reads.py reads_end1_val_1.fq reads_end2_val_2.fq > sim-interleaved.fastq
 
 # run diginorm specifying paired-end reads (-p) with coverage threshold and kmer of 20
-python /opt/software/khmer/scripts/normalize-by-median.py -R diginorm-final.out -p -C 20 -k 20 -N 4 -x 4e9 sim-interleaved.fastq
-echo -e "Done with interleaving files:" `date` "\n"
+python /home/scripts/khmer/scripts/normalize-by-median.py -R temp/diginorm-final.out -p -C 20 -k 20 -N 4 -x 4e9 --savehash simhash.kh sim-interleaved.fastq
 
-mv diginorm-final.out out 
+# trim likely erroneous k-mers. this will orphan some reads with poor quality partners
+python /home/scripts/khmer/scripts/filter-abund.py -V simhash.kh sim-interleaved.fastq.keep
 
+# separate orphaned from still-paired reads
+python /home/scripts/khmer/scripts/extract-paired-reads.py sim-interleaved.fastq.keep.abundfilt
 
+# move intermediate files
+mv sim-interleaved.fastq.keep temp
+mv sim-interleaved.fastq.keep.abundfilt temp
+mv simhash.kh temp
+
+echo -e "Done with diginorm:" `date` "\n"
 ##----------Assemble transcriptome with velvet-oases------------------------
 
 # Assemble for all reads
 # velveth
-velveth sim-oases-21 21 -fastq -interleaved -shortPaired sim-interleaved.fastq
+velveth sim-oases-$k $k -fastq -interleaved -shortPaired sim-interleaved.fastq
 # velvetg
-velvetg sim-oases-21 -read_trkg yes -exp_cov auto
+velvetg sim-oases-$k -read_trkg yes -exp_cov auto
 # oases
-oases sim-oases-21 -ins_length 180
+oases sim-oases-$k -ins_length 200
 # check basic stats
-python /opt/software/khmer/sandbox/assemstats2.py 100 sim-oases-21/transcripts.fa > oases-21-assem-stats.txt
-
-echo -e "Done with velvet-oases for normalized reads:" `date` "\n"
-
-# Assemble for digitally-normalized reads
-# velveth
-velveth sim-oases-norm-21 21 -fastq -interleaved -shortPaired sim-interleaved.fastq.keep
-# velvetg
-velvetg sim-oases-norm-21 -read_trkg yes -exp_cov auto
-# oases
-oases sim-oases-norm-21 -ins_length 180
-# check basic stats
-python /opt/software/khmer/sandbox/assemstats2.py 100 sim-oases-norm-21/transcripts.fa > oases-norm-21-assem-stats.txt
+python /opt/software/khmer/sandbox/assemstats2.py 100 sim-oases-$k/transcripts.fa > oases-$k-assem-stats.txt
 
 echo -e "Done with velvet-oases for all reads:" `date` "\n"
+
+# Assemble for digitally-normalized reads
+# Assemble for all reads
+# velveth
+velveth sim-oases-norm-$k $k -fastq -interleaved -shortPaired sim-interleaved.fastq.keep.abundfilt.pe -short sim-interleaved.fastq.keep.abundfilt.se
+# velvetg
+velvetg sim-oases-norm-$k -read_trkg yes -exp_cov auto
+# oases
+oases sim-oases-norm-$k -ins_length 200
+# check basic stats
+python /home/scripts/khmer/sandbox/assemstats2.py 100 sim-oases-norm-$k/transcripts.fa > oases-norm-$k-assem-stats.txt
+
+echo -e "Done with velvet-oases for normalized reads:" `date` "\n"
 
 
 ##----------------BLAST known starting sequences against assembly---------------
 
 ## BLAST assembled transcripts against true transcripts
 # Make blast database
-makeblastdb -dbtype nucl -in sim-oases-21/transcripts.fa
-# specify output in tabular format using `-outfmt 6` so that file can be read by RFLPtools in R
+makeblastdb -dbtype nucl -in sim-oases-$k/transcripts.fa
+# specify tempput in tabular format using `-tempfmt 6` so that file can be read by RFLPtools in R
 # for post-processing
-blastn -query known-sim.fasta -db sim-oases-21/transcripts.fa -outfmt 6 -out blast-oases-21.txt
-blastn -query known-sim.fasta -db sim-oases-21/transcripts.fa -out blast-oases-21.html
+blastn -query known-sim.fasta -db sim-oases-$k/transcripts.fa -outfmt 6 -out blast-oases-$k.txt
+blastn -query known-sim.fasta -db sim-oases-$k/transcripts.fa -out blast-oases-$k.html
 
 ## Repeat for normalized assembly
-makeblastdb -dbtype nucl -in sim-oases-norm-21/transcripts.fa
-blastn -query known-sim.fasta -db sim-oases-norm-21/transcripts.fa -outfmt 6 -out blast-oases-norm-21.txt
-blastn -query known-sim.fasta -db sim-oases-norm-21/transcripts.fa -out blast-oases-norm-21.html
+makeblastdb -dbtype nucl -in sim-oases-norm-$k/transcripts.fa
+blastn -query known-sim.fasta -db sim-oases-norm-$k/transcripts.fa -outfmt 6 -out blast-oases-norm-$k.txt
+blastn -query known-sim.fasta -db sim-oases-norm-$k/transcripts.fa -out blast-oases-norm-$k.html
 
  
 # R script to extract top assembled transcript against each starting sequence
 # input: (1) known fasta file (2) blast results
-# output: 
+# tempput: 
 #   sim-assembly-results1-{blast file prefix}.txt  - number of starting transcripts that are recaptured and length of captured versus missing transcripts
 #   sim-assembly-results2-{blast file prefix}.txt  - mean proportion of original transcript mapped and mean bp mapped to starting number bp
-Rscript sim-assembly-eval.R known-sim.fasta blast-oases-21.txt
-Rscript sim-assembly-eval.R known-sim.fasta blast-oases-norm-21.txt
+Rscript sim-assembly-eval.R known-sim.fasta blast-oases-$k.txt
+Rscript sim-assembly-eval.R known-sim.fasta blast-oases-norm-$k.txt
 
 
 ##-----------CD-HIT on assembled transcripts--------------------------------------------
 
-cd-hit-est -i sim-oases-21/transcripts.fa -o sim-oases-21-cdhit.fa -c 0.95 -n 8
-cd-hit-est -i sim-oases-norm-21/transcripts.fa -o sim-oases-norm-21-cdhit.fa -c 0.95 -n 8
+cd-hit-est -i sim-oases-$k/transcripts.fa -o sim-oases-$k-cdhit.fa -c 0.95 -n 8
+cd-hit-est -i sim-oases-norm-$k/transcripts.fa -o sim-oases-norm-$k-cdhit.fa -c 0.95 -n 8
 
 ## BLAST reduced transcripts to known assembly
-makeblastdb -dbtype nucl -in sim-oases-21-cdhit.fa
-blastn -query known-sim.fasta -db sim-oases-21-cdhit.fa -outfmt 6 -out blast-oases-21-cdhit.txt
-blastn -query known-sim.fasta -db sim-oases-21-cdhit.fa -out blast-oases-21-cdhit.html
+makeblastdb -dbtype nucl -in sim-oases-$k-cdhit.fa
+blastn -query known-sim.fasta -db sim-oases-$k-cdhit.fa -outfmt 6 -out blast-oases-$k-cdhit.txt
+blastn -query known-sim.fasta -db sim-oases-$k-cdhit.fa -out blast-oases-$k-cdhit.html
 
-Rscript sim-assembly-eval.R known-sim.fasta blast-oases-21-cdhit.txt
+Rscript sim-assembly-eval.R known-sim.fasta blast-oases-$k-cdhit.txt
 
 
 ##---------------Map reads against against known transcripts----------------------------
@@ -139,38 +166,38 @@ Rscript sim-assembly-eval.R known-sim.fasta blast-oases-21-cdhit.txt
 # Create index with Bowtie
 bowtie2-build known-sim.fasta bowtie-known
 # Run tophat to map reads to reference
-tophat -o tophat_known_out bowtie-known reads_end1_val_1.fq reads_end2_val_2.fq 
+tophat -o tophat_known_temp bowtie-known reads_end1_val_1.fq reads_end2_val_2.fq 
 # Run cufflinks for transcript discovery
-cufflinks -o cufflinks_known_out tophat_known_out/accepted_hits.bam
+cufflinks -o cufflinks_known_temp tophat_known_temp/accepted_hits.bam
 
 
 ## Map simulated reads to velvet-oases assembled transcripts using TopHat-Cufflinks
 # Create index with Bowtie
-bowtie2-build sim-oases-21/transcripts.fa bowtie-assembled
+bowtie2-build sim-oases-$k/transcripts.fa bowtie-assembled
 # Run tophat to map reads to reference
-tophat -o tophat_assembled_out bowtie-assembled reads_end1_val_1.fq reads_end2_val_2.fq 
+tophat -o tophat_assembled_temp bowtie-assembled reads_end1_val_1.fq reads_end2_val_2.fq 
 # Run cufflinks for transcript discovery
-cufflinks -o cufflinks_assembled_out tophat_assembled_out/accepted_hits.bam
+cufflinks -o cufflinks_assembled_temp tophat_assembled_temp/accepted_hits.bam
 ## Hmmm...cufflinks only reports counts for ~30 of 100 genes/isoforms...where are the rest?
 
 ## Map simulated reads to velvet-oases assembled transcripts using TopHat-Cufflinks
 # Create index with Bowtie
 bowtie2-build sim-oases-norm-21/transcripts.fa bowtie-assembled-norm
 # Run tophat to map reads to reference
-tophat -o tophat_assembled_norm_out bowtie-assembled-norm reads_end1_val_1.fq reads_end2_val_2.fq 
+tophat -o tophat_assembled_norm_temp bowtie-assembled-norm reads_end1_val_1.fq reads_end2_val_2.fq 
 # Run cufflinks for transcript discovery
-cufflinks -o cufflinks_assembled_norm_out tophat_assembled_norm_out/accepted_hits.bam
+cufflinks -o cufflinks_assembled_norm_temp tophat_assembled_norm_temp/accepted_hits.bam
 ## Hmmm...cufflinks only reports counts for ~30 of 100 genes/isoforms...where are the rest?
 
 ## Possibly due to multiple alignment of reads to assembled transcripts incorrectly inferring multiple isoforms...
 
-cat tophat_known_out/align_summary.txt
+cat tophat_known_temp/align_summary.txt
 # 6.5% aligned pairs have multiple alignments
 
-cat tophat_assembled_out/align_summary.txt
+cat tophat_assembled_temp/align_summary.txt
 # 52.7% aligned pairs have multiple alignments
 
-cat tophat_assembled_norm_out/align_summary.txt
+cat tophat_assembled_norm_temp/align_summary.txt
 # 59.4% aligned pairs have multiple alignments
 
 
@@ -205,22 +232,22 @@ Rscript TPM.R BWA-sim-counts.txt
 ##---------------Map reads against against assembled transcripts----------------------------
 
 # Index
-bwa index sim-oases-21/transcripts.fa
+bwa index sim-oases-$k/transcripts.fa
 
 # Map paired reads
-bwa mem sim-oases-21/transcripts.fa reads_end1_val_1.fq reads_end2_val_2.fq > oases-mapped-pe.sam
+bwa mem sim-oases-$k/transcripts.fa reads_end1_val_1.fq reads_end2_val_2.fq > oases-mapped-pe.sam
 
 # Convert to BAM
-samtools faidx sim-oases-21/transcripts.fa # index
-samtools import sim-oases-21/transcripts.fai oases-mapped-pe.sam oases-mapped-pe.bam # sam -> bam
+samtools faidx sim-oases-$k/transcripts.fa # index
+samtools import sim-oases-$k/transcripts.fai oases-mapped-pe.sam oases-mapped-pe.bam # sam -> bam
 samtools sort oases-mapped-pe.bam oases-mapped-pe.sorted # sort BAM
 samtools index oases-mapped-pe.sorted.bam # index
 
 # convert oases transcripts to bed 
-python /home/projects/climate-cascade/scripts/make_bed_from_fasta.py sim-oases-21/transcripts.fa > sim-oases-21-transcripts.bed
+python /home/projects/climate-cascade/scripts/make_bed_from_fasta.py sim-oases-$k/transcripts.fa > sim-oases-$k-transcripts.bed
 
 # count reads that have mapping quality of 30 or better to the assembled transcripts
-multiBamCov -q 30 -p -bams oases-mapped-pe.sorted.bam -bed sim-oases-21-transcripts.bed > BWA-counts-oases.txt
+multiBamCov -q 30 -p -bams oases-mapped-pe.sorted.bam -bed sim-oases-$k-transcripts.bed > BWA-counts-oases.txt
 
 
 # Calculate Transcripts per million (TPM) (Wagner et al. 2012 Theory. Biosci) 
@@ -230,7 +257,7 @@ Rscript TPM.R BWA-counts-oases.txt
 ## This results in reads being mapped to 203 transcripts as oases identifies multiple isoforms 
 ## for genes that do not actually exist
 ## Reduce oases assembly by selecting longest transcript for each locus 
-Rscript oases-reduce.r sim-oases-21/transcripts.fa blast-oases-21.txt 
+Rscript oases-reduce.r sim-oases-$k/transcripts.fa blast-oases-21.txt 
 # output file: oases-transcripts-kept.fa
 
 

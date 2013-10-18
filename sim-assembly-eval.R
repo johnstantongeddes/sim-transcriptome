@@ -64,19 +64,33 @@ captured <- which(known.names %in% blast.names)
 length(captured)
 captured.names <- known.names[captured]
 
-# Compare length of assembled genes versus those missing
-known.length <- width(known)
-known.length.captured <- known.length[captured]
-mean(known.length.captured)
+# If some query transcripts are not mapped in assembly, report
+# differences in mean length of missing versus assembled transcripts
 
-known.length.missing <- known.length[-captured]
-mean(known.length.missing)
+if(length(captured.names) < length(known.names)) {
+    known.length <- width(known)
+    known.length.captured <- known.length[captured]
+    ml.capt <- mean(known.length.captured)
+    num.capt <- length(known.length.captured)
 
-# combine two dataframes for histogram
-kcap <- data.frame(status="captured", length=known.length.captured)
-kmis <- data.frame(status="missing", length=known.length.missing)
+    known.length.missing <- known.length[-captured]
+    ml.miss <- mean(known.length.missing)
+    num.miss <- length(known.length.missing)
+        
+    # combine two dataframes for histogram
+    kcap <- data.frame(status="captured", length=known.length.captured)
+    kmis <- data.frame(status="missing", length=known.length.missing)
 
-kdf <- rbind(kcap, kmis)
+    kdf <- rbind(kcap, kmis)
+
+    # plot
+    png(paste("hist-", pre, "-missing-vs-captured-length.png", sep=""))
+      ggplot(kdf, aes(length, fill=status)) +
+      geom_density(alpha=0.2)
+    dev.off()
+
+} else { ml.capt = mean(width(known)); num.capt = length(unique(blast.names));
+         ml.miss = "NA"; num.miss = 0}
 
 
 ##--------Evaluate quality of assembly-------------------------------
@@ -84,14 +98,14 @@ kdf <- rbind(kcap, kmis)
 # does Oases infer isoforms that don't really exist?
 
 # Dataframe to collect results
-qual.df <- matrix(ncol=3, nrow=0)
-colnames(qual.df) <- c("gene", "length.mapped", "bp.mapped")
+qual.df <- matrix(ncol=4, nrow=0)
+colnames(qual.df) <- c("gene", "length.mapped", "num.isoforms", "bp.mapped.to.known")
 
 for(i in 1:length(unique(blast.res$query.id))) {
     # get number of transcripts
     bi <- blast.res$query.id[i]
     bin <- blast.res[blast.res$query.id==bi,]
-    nrow(bin)
+    ni <- nrow(bin)
     # length of known transcript
     kl <- width(known[which(known.names==bi)])
     # what proportion of known transcript mapped by assembled transcripts
@@ -99,16 +113,18 @@ for(i in 1:length(unique(blast.res$query.id))) {
     # how many base pairs of assembled transcript relative to known (e.g. incorrect isoforms)?
     bp.mapped <- sum(bin$alignment.length)/kl
     # report
-    qual.df <- rbind(qual.df, c(bi, prop.mapped, bp.mapped))
+    qual.df <- rbind(qual.df, c(bi, prop.mapped, ni, bp.mapped))
 }
 
 qual.df <- as.data.frame(qual.df)
 qual.df$length.mapped <- as.numeric(as.character(qual.df$length.mapped))
 qual.df$bp.mapped <- as.numeric(as.character(qual.df$bp.mapped))
+qual.df$num.isoforms <- as.numeric(as.character(qual.df$num.isoforms))
 str(qual.df)
 
 # Mean length of original transcript mapped
 mean(qual.df$length.mapped)
+
 # Mean copies of original transcript mapped. 1=mapped once, <1 mapped to less than full length,
 #  > 1 mapped multiple times (e.g 2=mapped twice)
 mean(qual.df$bp.mapped)
@@ -118,21 +134,17 @@ mean(qual.df$bp.mapped)
 # prefix for output files
 pre <- str_split_fixed(blastout, "\\.", 2)[,1]
 
-# plot
-png(paste("hist-", pre, "-missing-vs-captured-length.png", sep=""))
-ggplot(kdf, aes(length, fill=status)) +
-    geom_density(alpha=0.2)
-dev.off()
-
 ## Report results to file
 cat('Transcripts', '\t', 'Count', '\t', 'Average length (base pairs)', '\n',
     'Starting', '\t', length(known.names), '\t', mean(width(known)), '\n',
-    'Captured', '\t', length(captured), '\t', mean(known.length.captured), '\n',
-    'Missing', '\t', length(known.length.missing), '\t', mean(known.length.missing), '\n',
+    'Captured', '\t', num.capt, '\t', ml.capt, '\n',
+    'Missing', '\t', num.miss, '\t', ml.miss, '\n',
     file=paste("sim-assembly-results-", pre, ".txt", sep=""))
 
-cat('Mean proportion of original transcript mapped', '\t', 'Proportion bp assembled to starting bp', '\n',
-    round(mean(qual.df$length.mapped),2), '\t', round(mean(qual.df$bp.mapped),2), '\n',
+cat('Mean proportion of original transcript mapped', '\t', 'Number isoforms', '\t', 'Proportion bp assembled to starting bp', '\n',
+    round(mean(qual.df$length.mapped),2), '\t', round(mean(qual.df$num.isoforms),2), '\t', round(mean(qual.df$bp.mapped),2), '\n',
     file=paste("sim-assembly-results2-", pre, ".txt", sep=""))
+
+
 
 

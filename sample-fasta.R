@@ -12,6 +12,7 @@ X <- args[2]
 ## Read known fasta file
 file <- readDNAStringSet(filein)
 length(file)
+mean(width(file))
 
 # Sample X sequences
 samp.file <- sample(file, X)
